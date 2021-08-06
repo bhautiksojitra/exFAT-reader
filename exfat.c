@@ -81,14 +81,32 @@ int dequeue(list *my_list)
         int delete_data = 0;
 
         delete_data = my_list->top->data;
+
+        free(my_list->top);
+
         if (my_list->top->next != NULL)
+        {
             my_list->top = my_list->top->next;
+        }
         else
+        {
             my_list->top = NULL;
+        }
         my_list->size--;
         return delete_data;
     }
     return -1;
+}
+
+void clear_list(list *my_list)
+{
+    assert(my_list != NULL);
+
+    while (my_list->top != NULL)
+    {
+        dequeue(my_list);
+    }
+    free(my_list);
 }
 
 #pragma pack(push)
@@ -102,7 +120,7 @@ typedef struct INFO_EXFAT
     uint32_t fat_offset;
     uint32_t fat_length;
     uint32_t cluster_heap_offset;
-    uint32_t cluster_count;
+    int cluster_count;
     uint32_t first_cluster_root;
     uint32_t volume_serial_number;
 
@@ -112,9 +130,12 @@ typedef struct INFO_EXFAT
     uint8_t entry_type;
     uint8_t entry_type_2;
     uint32_t data;
-    uint32_t data_2;
+    long data_2;
 
     uint32_t first_cluster_index;
+    uint64_t data_length_bitmap;
+
+    uint8_t one_byte;
 
 } info_exFAT;
 
@@ -181,25 +202,44 @@ int main(int argc, char *argv[])
 
         info_storage->data = info_storage->first_cluster_root;
 
+        printf("\nfirst_cluster_root : %d", info_storage->first_cluster_root);
+
+        int fat_offset_bytes = (info_storage->fat_offset * sector_length);
+        int cluster_offset_bytes = info_storage->cluster_heap_offset;
+        int cluster_size = info_storage->cluster_count;
+
+        printf("fat offset bytes : %d\n", fat_offset_bytes);
+
         while (info_storage->data != 4294967295)
         {
             enqueue(new_list, info_storage->data);
             printf("\n data : 0x%08x", info_storage->data);
-            lseek(fd, (info_storage->fat_offset * sector_length) + (info_storage->data * 4), SEEK_SET);
+            lseek(fd, fat_offset_bytes + (info_storage->data * 4), SEEK_SET);
             read(fd, &info_storage->data, 4);
         }
 
         int N = (new_list->size * sectors_per_cluster * sector_length) / 32;
 
+        printf("\ncluster_offset_bytes : %d", cluster_offset_bytes);
+
+        printf("\nfat_offset : %d", info_storage->fat_offset);
+        printf("\nfat_length : %d", info_storage->fat_length);
+        printf("\ncluster_heap_offset : %d", info_storage->cluster_heap_offset);
+        printf("\ncluster_count : %d", info_storage->cluster_count);
+
+        printf("\nvolume serial number : %d", info_storage->volume_serial_number);
+        printf("\nsector_length :%f\n", sector_length);
+        printf("\nsectors_per_cluster : %f\n", sectors_per_cluster);
+
         node *temp = new_list->top;
-        lseek(fd, (info_storage->cluster_heap_offset + (info_storage->first_cluster_root - 2) * sectors_per_cluster) * sector_length, SEEK_SET);
 
         while (temp != NULL)
         {
 
             int i = 0;
+            lseek(fd, (cluster_offset_bytes + (temp->data - 2) * sectors_per_cluster) * sector_length, SEEK_SET);
 
-            while (i < N)
+            while (i < N && (info_storage->label_length <= 0 || info_storage->data_length_bitmap <= 0))
             {
                 read(fd, &info_storage->entry_type, 1);
                 if (info_storage->entry_type == 131)
@@ -212,7 +252,7 @@ int main(int argc, char *argv[])
                 {
                     lseek(fd, 19, SEEK_CUR);
                     read(fd, &info_storage->first_cluster_index, 4);
-                    lseek(fd, 8, SEEK_CUR);
+                    read(fd, &info_storage->data_length_bitmap, 8);
                 }
                 else
                 {
@@ -227,7 +267,7 @@ int main(int argc, char *argv[])
 
         char *str = unicode2ascii(&info_storage->volume_label, info_storage->label_length);
 
-        printf("voulmn label : %s", str);
+        printf("volume label : %s", str);
 
         printf("value of N : %d", N);
 
@@ -235,24 +275,80 @@ int main(int argc, char *argv[])
         printf("\nfat_length : %d", info_storage->fat_length);
         printf("\ncluster_heap_offset : %d", info_storage->cluster_heap_offset);
         printf("\ncluster_count : %d", info_storage->cluster_count);
-        printf("\nfirst_cluster_root : %d", info_storage->first_cluster_root);
+
         printf("\nvolume serial number : %d", info_storage->volume_serial_number);
         printf("\nsector_length :%f\n", sector_length);
         printf("\nsectors_per_cluster : %f\n", sectors_per_cluster);
 
         // allocation bit map
-        printf("first cluster index : %d", info_storage->first_cluster_index);
+        printf("\nfirst cluster index : %d", info_storage->first_cluster_index);
+        printf("\ndata length bitmap : %lu", info_storage->data_length_bitmap);
 
         list *cluster_list = init_list();
         info_storage->data_2 = info_storage->first_cluster_index;
 
+        printf("fat offset bytes : %d\n", fat_offset_bytes);
+
         while (info_storage->data_2 != 4294967295)
         {
             enqueue(cluster_list, info_storage->data_2);
-            printf("\n data 2 : 0x%08x", info_storage->data_2);
-            lseek(fd, (info_storage->fat_offset * sector_length) + (info_storage->data_2 * 4), SEEK_SET);
+
+            lseek(fd, fat_offset_bytes + (info_storage->data_2 * 4), SEEK_SET);
             read(fd, &info_storage->data_2, 4);
+            printf("\n data 2 : 0x%08lx", info_storage->data_2);
         }
+
+        node *temp_2 = cluster_list->top;
+        printf("\ncluster_offset_bytes : %d", cluster_offset_bytes);
+
+        int bit_count = 0;
+        int set_bit = 0;
+        while (temp_2 != NULL)
+        {
+            int x = 0;
+
+            x = (cluster_offset_bytes + ((temp_2->data - 2) * sectors_per_cluster)) * sector_length;
+
+            printf("\nvalue of x :: ----------- %d", x);
+
+            int count = 0;
+
+            printf("temp data : %d\n", temp_2->data);
+
+            lseek(fd, (cluster_offset_bytes + ((temp_2->data - 2) * sectors_per_cluster)) * sector_length, SEEK_SET);
+
+            while (bit_count < cluster_size && count < sector_length * sectors_per_cluster)
+            {
+                read(fd, &info_storage->one_byte, 1);
+
+                printf("\none byte   : %d", info_storage->one_byte);
+
+                count++;
+
+                //printf("\nCount : %d", count);
+
+                int n = 0;
+                while (n < 8)
+                {
+                    if (!(info_storage->one_byte & 1))
+                        set_bit++;
+                    printf("%d", info_storage->one_byte && 1);
+                    info_storage->one_byte = info_storage->one_byte >> 1;
+                    bit_count++;
+                    n++;
+                }
+            }
+
+            temp_2 = temp_2->next;
+        }
+
+        long y = (info_storage->cluster_count - set_bit);
+        printf(" set bit : \n %d", set_bit);
+        printf("\ncluster size : %d  %d", info_storage->cluster_count, bit_count);
+        printf("\ntotal free space : %ld", (y * 512 * 4) / 1000);
+
+        clear_list(cluster_list);
+        clear_list(new_list);
     }
     else if (strcmp(argv[2], "list") == 0)
     {
