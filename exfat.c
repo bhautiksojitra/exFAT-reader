@@ -186,7 +186,7 @@ int cluster_offset_bytes = 0;
 double sector_length = 0;
 double sectors_per_cluster = 0;
 
-void print_file_list(int start_index, int file_descriptor, info_exFAT *info, recurse *r)
+void print_file_list(int start_index, int file_descriptor, info_exFAT *info, recurse *r, char s[1])
 {
     info->index = start_index;
 
@@ -194,13 +194,13 @@ void print_file_list(int start_index, int file_descriptor, info_exFAT *info, rec
     while (info->index != 4294967295 && info->index != 4294967287 && info->index != 0)
     {
         enqueue(list_1, info->index);
-        printf("\n data : 0x%08x", info->index);
+        //printf("\n data : 0x%08x", info->index);
         lseek(file_descriptor, fat_offset_bytes + (info->index * 4), SEEK_SET);
         read(file_descriptor, &info->index, 4);
     }
 
     int value_N = (list_1->size * sectors_per_cluster * sector_length) / 32;
-    printf("value N : %d list size %d\n", value_N, list_1->size);
+    // printf("value N : %d list size %d\n", value_N, list_1->size);
 
     node *temp = list_1->top;
 
@@ -214,50 +214,58 @@ void print_file_list(int start_index, int file_descriptor, info_exFAT *info, rec
         while (i < value_N)
         {
 
+            lseek(file_descriptor, offset + i * 32, SEEK_SET);
             read(file_descriptor, &info->entry_type, 1);
 
-            //printf("\n0x%02x", info->entry_type);
+            // printf("\n0x%02x", info->entry_type);
 
             if (info->entry_type == 133)
             {
-                lseek(file_descriptor, 3, SEEK_CUR);
+                lseek(file_descriptor, offset + i * 32 + 4, SEEK_SET);
                 read(file_descriptor, &info->attribute, 2);
                 info->attribute = info->attribute >> 4;
+
+                i++;
                 //printf("file attributes : %d\n", info->attribute);
 
-                lseek(file_descriptor, 26, SEEK_CUR);
+                lseek(file_descriptor, offset + i * 32, SEEK_SET);
                 read(file_descriptor, &info->entry_type, 1);
 
                 if (info->entry_type == 192)
                 {
-                    i++;
-                    lseek(file_descriptor, 2, SEEK_CUR);
+
+                    lseek(file_descriptor, offset + i * 32 + 3, SEEK_SET);
                     read(file_descriptor, &info->file_name_length, 1);
-                    //printf("file length :%d\n", info->file_name_length);
+                    // printf("file length :%d\n", info->file_name_length);
 
                     int length = info->file_name_length;
 
-                    lseek(file_descriptor, 16, SEEK_CUR);
+                    lseek(file_descriptor, offset + i * 32 + 3 + 1 + 16, SEEK_SET);
                     read(file_descriptor, &r->dir_index, 4);
-
-                    lseek(file_descriptor, -23, SEEK_CUR);
-
-                    lseek(file_descriptor, 31, SEEK_CUR);
+                    i++;
+                    lseek(file_descriptor, offset + i * 32, SEEK_SET);
                     read(file_descriptor, &info->entry_type, 1);
 
                     if (info->entry_type == 193)
                     {
 
-                        //printf("file attributes : %d\n", info->attribute);
-
-                        for (int j = 0; j < (length / 15 + 1); j++)
+                        while (info->entry_type == 193)
                         {
-                            lseek(file_descriptor, 1, SEEK_CUR);
+
+                            //printf("file attributes : %d\n", info->attribute);
+
+                            //for (int j = 0; j < (length / 15 + 1); j++)
+                            //{
+                            lseek(file_descriptor, offset + i * 32 + 2, SEEK_SET);
                             read(file_descriptor, &info->file_name, 30);
-                            char *file = unicode2ascii(&info->file_name, length);
-                            printf("file name : %s\n", file);
-                            printf("file name : %d\n", i);
                             i++;
+
+                            char *file = unicode2ascii(&info->file_name, length);
+                            printf(" %s %s\n", s, file);
+                            //printf("file name : %d\n", i);
+
+                            lseek(file_descriptor, offset + i * 32, SEEK_SET);
+                            read(file_descriptor, &info->entry_type, 1);
                         }
 
                         //printf("file length :%d\n", info->file_name_length);
@@ -266,26 +274,20 @@ void print_file_list(int start_index, int file_descriptor, info_exFAT *info, rec
                         {
                             //string concentration in c--------------------------------------------------
                             //printf("is directory\n ");
-                            printf("-----------------------------------------------------     ");
-                            print_file_list(r->dir_index, file_descriptor, info, r);
+                            //printf("-----------------------------------------------------     ");
+                            char newstr[strlen(s) + 1];
+                            strcat(newstr, s);
+                            print_file_list(r->dir_index, file_descriptor, info, r, newstr);
                         }
                         else
                         {
-                            printf("not a directory !\n");
+                            //printf("not a directory !\n");
                         }
                     }
-                    else
-                        lseek(file_descriptor, -1, SEEK_CUR);
-                }
-                else
-                {
-                    lseek(file_descriptor, -1, SEEK_CUR);
                 }
             }
             else
-                lseek(file_descriptor, 31, SEEK_CUR);
-
-            i++;
+                i++;
         }
 
         temp = temp->next;
@@ -467,7 +469,7 @@ void print_info(int fd, info_exFAT *info_storage)
     clear_list(root_list);
 }
 
-void get_path(int index, int file_descriptor, info_exFAT *info, recurse *r, char *string[], int counter)
+void get_path(int index, int file_descriptor, info_exFAT *info, recurse *r, char *s[], int counter)
 {
 
     info->index = index;
@@ -476,13 +478,13 @@ void get_path(int index, int file_descriptor, info_exFAT *info, recurse *r, char
     while (info->index != 4294967295 && info->index != 4294967287 && info->index != 0)
     {
         enqueue(list_1, info->index);
-        printf("\n data : 0x%08x", info->index);
+        //printf("\n data : 0x%08x", info->index);
         lseek(file_descriptor, fat_offset_bytes + (info->index * 4), SEEK_SET);
         read(file_descriptor, &info->index, 4);
     }
 
     int value_N = (list_1->size * sectors_per_cluster * sector_length) / 32;
-    printf("value N : %d list size %d\n", value_N, list_1->size);
+    // printf("value N : %d list size %d\n", value_N, list_1->size);
 
     node *temp = list_1->top;
 
@@ -490,54 +492,82 @@ void get_path(int index, int file_descriptor, info_exFAT *info, recurse *r, char
     {
 
         int i = 0;
-        lseek(file_descriptor, (cluster_offset_bytes + (temp->data - 2) * sectors_per_cluster) * sector_length, SEEK_SET);
+        int offset = (cluster_offset_bytes + (temp->data - 2) * sectors_per_cluster) * sector_length;
+        lseek(file_descriptor, offset, SEEK_SET);
 
         while (i < value_N)
         {
 
+            lseek(file_descriptor, offset + i * 32, SEEK_SET);
             read(file_descriptor, &info->entry_type, 1);
 
-            //printf("\n0x%02x", info->entry_type);
+            // printf("\n0x%02x", info->entry_type);
 
             if (info->entry_type == 133)
             {
-                lseek(file_descriptor, 3, SEEK_CUR);
+                lseek(file_descriptor, offset + i * 32 + 4, SEEK_SET);
                 read(file_descriptor, &info->attribute, 2);
                 info->attribute = info->attribute >> 4;
+
+                i++;
                 //printf("file attributes : %d\n", info->attribute);
 
-                lseek(file_descriptor, 26, SEEK_CUR);
+                lseek(file_descriptor, offset + i * 32, SEEK_SET);
                 read(file_descriptor, &info->entry_type, 1);
 
                 if (info->entry_type == 192)
                 {
-                    i++;
-                    lseek(file_descriptor, 2, SEEK_CUR);
+
+                    lseek(file_descriptor, offset + i * 32 + 3, SEEK_SET);
                     read(file_descriptor, &info->file_name_length, 1);
-                    //printf("file length :%d\n", info->file_name_length);
+                    // printf("file length :%d\n", info->file_name_length);
 
                     int length = info->file_name_length;
 
-                    lseek(file_descriptor, 16, SEEK_CUR);
+                    lseek(file_descriptor, offset + i * 32 + 3 + 1 + 16, SEEK_SET);
                     read(file_descriptor, &r->dir_index, 4);
-
-                    lseek(file_descriptor, -23, SEEK_CUR);
-
-                    lseek(file_descriptor, 31, SEEK_CUR);
+                    i++;
+                    lseek(file_descriptor, offset + i * 32, SEEK_SET);
                     read(file_descriptor, &info->entry_type, 1);
 
                     if (info->entry_type == 193)
                     {
-
-                        //printf("file attributes : %d\n", info->attribute);
                         char *file = NULL;
-                        for (int i = 0; i < (length / 15 + 1); i++)
+
+                        while (info->entry_type == 193)
                         {
-                            lseek(file_descriptor, 1, SEEK_CUR);
+
+                            //printf("file attributes : %d\n", info->attribute);
+
+                            //for (int j = 0; j < (length / 15 + 1); j++)
+                            //{
+                            lseek(file_descriptor, offset + i * 32 + 2, SEEK_SET);
                             read(file_descriptor, &info->file_name, 30);
+                            i++;
+
                             file = unicode2ascii(&info->file_name, length);
-                            printf("file name : %s\n", file);
+                            printf(" %s\n", file);
+
+                            if (strcmp(s[counter], file) == 0)
+                            {
+                                if (info->attribute & 1)
+                                {
+                                    printf("\nfound it");
+                                    get_path(r->dir_index, file_descriptor, info, r, s, counter + 1);
+                                }
+                                else
+                                {
+                                    printf("hurray !");
+                                }
+                            }
+                            else
+                            {
+                                printf("\nnot found it");
+                            }
                             printf("file name : %d\n", i);
+
+                            lseek(file_descriptor, offset + i * 32, SEEK_SET);
+                            read(file_descriptor, &info->entry_type, 1);
                         }
 
                         //printf("file length :%d\n", info->file_name_length);
@@ -546,27 +576,25 @@ void get_path(int index, int file_descriptor, info_exFAT *info, recurse *r, char
                         {
                             //string concentration in c--------------------------------------------------
                             //printf("is directory\n ");
-                            printf("-----------------------------------------------------     ");
-                            if (strcmp(file, string[counter]) == 0)
-                                get_path(r->dir_index, file_descriptor, info, r, string, counter++);
+                            //printf("-----------------------------------------------------     ");
                         }
                         else
                         {
-                            printf("not a directory !\n");
+                            // if (counter < (int)strlen(*string) && strcmp(string[counter], file) == 0)
+                            // {
+                            //     printf("\nfound it file");
+                            //     //get_path(r->dir_index, file_descriptor, info, r, string ,  counter++);
+                            // }
+                            // else
+                            // {
+                            //     printf("\nnot found it");
+                            // }
                         }
                     }
-                    else
-                        lseek(file_descriptor, -1, SEEK_CUR);
-                }
-                else
-                {
-                    lseek(file_descriptor, -1, SEEK_CUR);
                 }
             }
             else
-                lseek(file_descriptor, 31, SEEK_CUR);
-
-            i++;
+                i++;
         }
 
         temp = temp->next;
@@ -582,21 +610,27 @@ int main(int argc, char *argv[])
     recurse r;
     print_info(fd, &info_struct);
 
-    char *parse[10];
-    char *token = strtok(argv[3], "/");
-    int i = 0;
-    while (token != NULL)
-    {
-        strcpy(parse[i], token);
-        token = strtok(NULL, "/");
-        i++;
-    }
+    // char *token[10];
+    // char *temp = strtok(argv[3], "/");
+    // token[0] = malloc(10 * sizeof(char));
+    // strcpy(token[0], temp);
+    // int i = 1;
+    // while (temp != NULL)
+    // {
+    //     //parse[i] = malloc(sizeof(char *));
+    //     token[i] = malloc(10 * sizeof(char));
+    //     strcpy(token[i], temp);
+    //     temp = strtok(NULL, "/");
+    //     printf("\n %s", token[i]);
+    //     i++;
+    // }
 
-    get_path(46, fd, &info_struct, &r, parse, 0);
+    //get_path(46, fd, &info_struct, &r, token, 0);
 
     if (strcmp(argv[2], "info") == 0)
     {
-        // print_file_list(46, fd, &info_struct, &r);
+
+        print_file_list(46, fd, &info_struct, &r, "-");
     }
     else if (strcmp(argv[2], "list") == 0)
     {
