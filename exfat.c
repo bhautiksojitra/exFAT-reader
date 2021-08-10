@@ -186,7 +186,7 @@ int cluster_offset_bytes = 0;
 double sector_length = 0;
 double sectors_per_cluster = 0;
 
-void print_file_list(int start_index, int file_descriptor, info_exFAT *info, recurse *r, char s[1])
+void print_file_list(int start_index, int file_descriptor, info_exFAT *info, recurse *r, char *s)
 {
     info->index = start_index;
 
@@ -199,7 +199,7 @@ void print_file_list(int start_index, int file_descriptor, info_exFAT *info, rec
         read(file_descriptor, &info->index, 4);
     }
 
-    int value_N = (list_1->size * sectors_per_cluster * sector_length) / 32;
+    int value_N = (sectors_per_cluster * sector_length) / 32;
     // printf("value N : %d list size %d\n", value_N, list_1->size);
 
     node *temp = list_1->top;
@@ -217,7 +217,7 @@ void print_file_list(int start_index, int file_descriptor, info_exFAT *info, rec
             lseek(file_descriptor, offset + i * 32, SEEK_SET);
             read(file_descriptor, &info->entry_type, 1);
 
-            // printf("\n0x%02x", info->entry_type);
+            //printf("\n0x%02x", info->entry_type);
 
             if (info->entry_type == 133)
             {
@@ -275,7 +275,8 @@ void print_file_list(int start_index, int file_descriptor, info_exFAT *info, rec
                             //string concentration in c--------------------------------------------------
                             //printf("is directory\n ");
                             //printf("-----------------------------------------------------     ");
-                            char newstr[strlen(s) + 1];
+                            char *newstr = malloc(sizeof(s) + 1);
+                            newstr[0] = '-';
                             strcat(newstr, s);
                             print_file_list(r->dir_index, file_descriptor, info, r, newstr);
                         }
