@@ -14,6 +14,8 @@
 #include <assert.h>
 #include <string.h>
 
+#define DEPTH_OF_FS 5
+
 typedef struct NODE
 {
     int data;
@@ -111,45 +113,36 @@ void clear_list(list *my_list)
 
 #pragma pack(push)
 #pragma pack(1)
+
 typedef struct INFO_EXFAT
 {
-
-    uint8_t label_length;
-    uint16_t volume_label;
-
+    // some comman variable needed by the file reader
     uint32_t fat_offset;
     uint32_t fat_length;
     uint32_t cluster_heap_offset;
-    int cluster_count;
+    uint32_t cluster_count;
     uint32_t first_cluster_root;
-    uint32_t volume_serial_number;
-
     uint8_t value_for_sector_length;
     uint8_t value_for_sectors_per_cluster;
-
     uint8_t entry_type;
-    uint8_t entry_type_2;
-    uint32_t data;
-    long data_2;
-
     uint32_t first_cluster_index;
-    uint64_t data_length_bitmap;
+    uint32_t next_index;
 
+    // part -1 variables to print the specific info.
+    uint32_t volume_serial_number;
+    uint8_t label_length;
+    uint16_t volume_label;
+    uint32_t bitmap_cluster_index;
+    uint64_t data_length_bitmap;
     uint8_t one_byte;
 
-    uint32_t index;
-
+    // variables for part-2
     uint16_t attribute;
-
     uint16_t file_name;
     uint8_t file_name_length;
+    uint64_t valid_data_length;
 
 } info_exFAT;
-
-typedef struct RECURSE
-{
-    uint32_t dir_index;
-} recurse;
 
 #pragma pack(pop)
 
@@ -182,126 +175,16 @@ static char *unicode2ascii(uint16_t *unicode_string, uint8_t length)
 }
 
 int fat_offset_bytes = 0;
-int cluster_offset_bytes = 0;
-double sector_length = 0;
-double sectors_per_cluster = 0;
-
-void print_file_list(int start_index, int file_descriptor, info_exFAT *info, recurse *r, char *s)
+int cluster_heap_offset = 0;
+int sector_length = 0;
+int sectors_per_cluster = 0;
+int first_cluster_index = 0;
+int entry_type = 0;
+int total_cluster = 0;
+int first_cluster_root = 0;
+int length_file_path = 0;
+void common_variables_reader(int fd, info_exFAT *info_storage)
 {
-    info->index = start_index;
-
-    list *list_1 = init_list();
-    while (info->index != 4294967295 && info->index != 4294967287 && info->index != 0)
-    {
-        enqueue(list_1, info->index);
-        //printf("\n data : 0x%08x", info->index);
-        lseek(file_descriptor, fat_offset_bytes + (info->index * 4), SEEK_SET);
-        read(file_descriptor, &info->index, 4);
-    }
-
-    int value_N = (sectors_per_cluster * sector_length) / 32;
-    // printf("value N : %d list size %d\n", value_N, list_1->size);
-
-    node *temp = list_1->top;
-
-    while (temp != NULL)
-    {
-
-        int i = 0;
-        int offset = (cluster_offset_bytes + (temp->data - 2) * sectors_per_cluster) * sector_length;
-        lseek(file_descriptor, offset, SEEK_SET);
-
-        while (i < value_N)
-        {
-
-            lseek(file_descriptor, offset + i * 32, SEEK_SET);
-            read(file_descriptor, &info->entry_type, 1);
-
-            //printf("\n0x%02x", info->entry_type);
-
-            if (info->entry_type == 133)
-            {
-                lseek(file_descriptor, offset + i * 32 + 4, SEEK_SET);
-                read(file_descriptor, &info->attribute, 2);
-                info->attribute = info->attribute >> 4;
-
-                i++;
-                //printf("file attributes : %d\n", info->attribute);
-
-                lseek(file_descriptor, offset + i * 32, SEEK_SET);
-                read(file_descriptor, &info->entry_type, 1);
-
-                if (info->entry_type == 192)
-                {
-
-                    lseek(file_descriptor, offset + i * 32 + 3, SEEK_SET);
-                    read(file_descriptor, &info->file_name_length, 1);
-                    // printf("file length :%d\n", info->file_name_length);
-
-                    int length = info->file_name_length;
-
-                    lseek(file_descriptor, offset + i * 32 + 3 + 1 + 16, SEEK_SET);
-                    read(file_descriptor, &r->dir_index, 4);
-                    i++;
-                    lseek(file_descriptor, offset + i * 32, SEEK_SET);
-                    read(file_descriptor, &info->entry_type, 1);
-
-                    if (info->entry_type == 193)
-                    {
-
-                        while (info->entry_type == 193)
-                        {
-
-                            //printf("file attributes : %d\n", info->attribute);
-
-                            //for (int j = 0; j < (length / 15 + 1); j++)
-                            //{
-                            lseek(file_descriptor, offset + i * 32 + 2, SEEK_SET);
-                            read(file_descriptor, &info->file_name, 30);
-                            i++;
-
-                            char *file = unicode2ascii(&info->file_name, length);
-                            printf(" %s %s\n", s, file);
-                            //printf("file name : %d\n", i);
-
-                            lseek(file_descriptor, offset + i * 32, SEEK_SET);
-                            read(file_descriptor, &info->entry_type, 1);
-                        }
-
-                        //printf("file length :%d\n", info->file_name_length);
-
-                        if (info->attribute & 1)
-                        {
-                            //string concentration in c--------------------------------------------------
-                            //printf("is directory\n ");
-                            //printf("-----------------------------------------------------     ");
-                            char *newstr = malloc(sizeof(s) + 1);
-                            newstr[0] = '-';
-                            strcat(newstr, s);
-                            print_file_list(r->dir_index, file_descriptor, info, r, newstr);
-                        }
-                        else
-                        {
-                            //printf("not a directory !\n");
-                        }
-                    }
-                }
-            }
-            else
-                i++;
-        }
-
-        temp = temp->next;
-    }
-}
-
-void print_info(int fd, info_exFAT *info_storage)
-{
-
-    sector_length = 0;
-    sectors_per_cluster = 0;
-    list *root_list = init_list();
-
     lseek(fd, 80, SEEK_CUR);
 
     read(fd, &info_storage->fat_offset, 4);
@@ -312,65 +195,59 @@ void print_info(int fd, info_exFAT *info_storage)
     read(fd, &info_storage->volume_serial_number, 4);
 
     lseek(fd, 4, SEEK_CUR);
-
     read(fd, &info_storage->value_for_sector_length, 1);
     read(fd, &info_storage->value_for_sectors_per_cluster, 1);
 
     sector_length = pow(2, info_storage->value_for_sector_length);
     sectors_per_cluster = pow(2, info_storage->value_for_sectors_per_cluster);
-
-    info_storage->data = info_storage->first_cluster_root;
-
-    //printf("\nfirst_cluster_root : %d", info_storage->first_cluster_root);
-
     fat_offset_bytes = (info_storage->fat_offset * sector_length);
-    cluster_offset_bytes = info_storage->cluster_heap_offset;
-    int cluster_size = info_storage->cluster_count;
+    cluster_heap_offset = info_storage->cluster_heap_offset;
+    total_cluster = info_storage->cluster_count;
+    first_cluster_root = info_storage->first_cluster_root;
+}
 
-    //printf("fat offset bytes : %d\n", fat_offset_bytes);
+void print_info(int fd, info_exFAT *info_storage)
+{
 
-    while (info_storage->data != 4294967295)
+    list *root_list = init_list();
+
+    info_storage->next_index = info_storage->first_cluster_root;
+
+    while (info_storage->next_index != 4294967295)
     {
-        enqueue(root_list, info_storage->data);
-        //printf("\n data : 0x%08x", info_storage->data);
-        lseek(fd, fat_offset_bytes + (info_storage->data * 4), SEEK_SET);
-        read(fd, &info_storage->data, 4);
+        enqueue(root_list, info_storage->next_index);
+        lseek(fd, fat_offset_bytes + (info_storage->next_index * 4), SEEK_SET);
+        read(fd, &info_storage->next_index, 4);
     }
 
-    int N = (root_list->size * sectors_per_cluster * sector_length) / 32;
-
-    //printf("\ncluster_offset_bytes : %d", cluster_offset_bytes);
-
-    //printf("\nfat_offset : %d", info_storage->fat_offset);
-    //printf("\nfat_length : %d", info_storage->fat_length);
-    //printf("\ncluster_heap_offset : %d", info_storage->cluster_heap_offset);
-    //printf("\ncluster_count : %d", info_storage->cluster_count);
-
-    //printf("\nvolume serial number : %d", info_storage->volume_serial_number);
-    //printf("\nsector_length :%f\n", sector_length);
-    //printf("\nsectors_per_cluster : %f\n", sectors_per_cluster);
+    int N = (sectors_per_cluster * sector_length) / 32;
 
     node *temp = root_list->top;
+    char *str = NULL;
 
     while (temp != NULL)
     {
 
         int i = 0;
-        lseek(fd, (cluster_offset_bytes + (temp->data - 2) * sectors_per_cluster) * sector_length, SEEK_SET);
 
-        while (i < N && (info_storage->label_length <= 0 || info_storage->data_length_bitmap <= 0))
+        lseek(fd, (cluster_heap_offset + (temp->data - 2) * sectors_per_cluster) * sector_length, SEEK_SET);
+
+        while (i < N)
         {
             read(fd, &info_storage->entry_type, 1);
             if (info_storage->entry_type == 131)
             {
                 read(fd, &info_storage->label_length, 1);
                 read(fd, &info_storage->volume_label, 22);
+                str = unicode2ascii(&info_storage->volume_label, info_storage->label_length);
+
                 lseek(fd, 8, SEEK_CUR);
             }
             else if (info_storage->entry_type == 129)
             {
                 lseek(fd, 19, SEEK_CUR);
-                read(fd, &info_storage->first_cluster_index, 4);
+                read(fd, &info_storage->bitmap_cluster_index, 4);
+
                 read(fd, &info_storage->data_length_bitmap, 8);
             }
             else
@@ -378,114 +255,74 @@ void print_info(int fd, info_exFAT *info_storage)
                 lseek(fd, 31, SEEK_CUR);
             }
             i++;
-            //printf("\n0x%02x", info_storage->entry_type);
         }
 
         temp = temp->next;
     }
 
-    char *str = unicode2ascii(&info_storage->volume_label, info_storage->label_length);
+    list *bitmap_clusters = init_list();
+    info_storage->next_index = info_storage->bitmap_cluster_index;
 
-    printf("volume label : %s", str);
-
-    printf("value of N : %d", N);
-
-    printf("\nfat_offset : %d", info_storage->fat_offset);
-    printf("\nfat_length : %d", info_storage->fat_length);
-    printf("\ncluster_heap_offset : %d", info_storage->cluster_heap_offset);
-    printf("\ncluster_count : %d", info_storage->cluster_count);
-
-    printf("\nvolume serial number : %d", info_storage->volume_serial_number);
-    printf("\nsector_length :%f\n", sector_length);
-    printf("\nsectors_per_cluster : %f\n", sectors_per_cluster);
-
-    // allocation bit map
-    printf("\nfirst cluster index : %d", info_storage->first_cluster_index);
-    printf("\ndata length bitmap : %lu", info_storage->data_length_bitmap);
-
-    list *cluster_list = init_list();
-    info_storage->data_2 = info_storage->first_cluster_index;
-
-    printf("fat offset bytes : %d\n", fat_offset_bytes);
-
-    while (info_storage->data_2 != 4294967295 && info_storage->data_2 != 4294967287)
+    while (info_storage->next_index != 4294967295 && info_storage->next_index != 4294967287 && info_storage->next_index != 4294967288 && info_storage->next_index != 0)
     {
-        enqueue(cluster_list, info_storage->data_2);
-
-        lseek(fd, fat_offset_bytes + (info_storage->data_2 * 4), SEEK_SET);
-        read(fd, &info_storage->data_2, 4);
-        printf("\n data 2 : 0x%08lx", info_storage->data_2);
+        enqueue(bitmap_clusters, info_storage->next_index);
+        lseek(fd, fat_offset_bytes + (info_storage->next_index * 4), SEEK_SET);
+        read(fd, &info_storage->next_index, 4);
     }
 
-    node *temp_2 = cluster_list->top;
-    printf("\ncluster_offset_bytes : %d", cluster_offset_bytes);
+    temp = bitmap_clusters->top;
 
     int bit_count = 0;
-    int set_bit = 0;
-    while (temp_2 != NULL)
+    int zero_bits = 0;
+    while (temp != NULL)
     {
-        int x = 0;
+        int count_bytes = 0;
+        lseek(fd, (cluster_heap_offset + ((temp->data - 2) * sectors_per_cluster)) * sector_length, SEEK_SET);
 
-        x = (cluster_offset_bytes + ((temp_2->data - 2) * sectors_per_cluster)) * sector_length;
-
-        // printf("\nvalue of x :: ----------- %d", x);
-
-        int count = 0;
-
-        //printf("temp data : %d\n", temp_2->data);
-
-        lseek(fd, (cluster_offset_bytes + ((temp_2->data - 2) * sectors_per_cluster)) * sector_length, SEEK_SET);
-
-        while (bit_count < cluster_size && count < sector_length * sectors_per_cluster)
+        while (bit_count < total_cluster && count_bytes < (sector_length * sectors_per_cluster))
         {
             read(fd, &info_storage->one_byte, 1);
+            count_bytes++;
 
-            // printf("\none byte   : %d", info_storage->one_byte);
-
-            count++;
-
-            //printf("\nCount : %d", count);
-
-            int n = 0;
-            while (n < 8)
+            int bit_in_byte = 0;
+            while (bit_in_byte < 8)
             {
                 if (!(info_storage->one_byte & 1))
-                    set_bit++;
-                //printf("%d", info_storage->one_byte && 1);
+                    zero_bits++;
                 info_storage->one_byte = info_storage->one_byte >> 1;
+
                 bit_count++;
-                n++;
+                bit_in_byte++;
             }
         }
 
-        temp_2 = temp_2->next;
+        temp = temp->next;
     }
 
-    long y = (info_storage->cluster_count - set_bit);
-    printf(" set bit : \n %d", set_bit);
-    printf("\ncluster size : %d  %d", info_storage->cluster_count, bit_count);
-    printf("\ntotal free space : %ld", (y * 512 * 4) / 1000);
+    printf("Info about exFAT file system...\n");
+    printf("Volume Label : %s\n", str);
+    printf("Volume Serial Number : %d\n", info_storage->volume_serial_number);
+    printf("Free space in the file system (in KB) : %d KB\n", (zero_bits * sector_length * sectors_per_cluster) / 1024);
+    printf("Cluster Size (In sectors) : %d sectors\n", sectors_per_cluster);
+    printf("Cluster Size (In bytes) : %d bytes\n", sector_length * sectors_per_cluster);
 
-    clear_list(cluster_list);
+    clear_list(bitmap_clusters);
     clear_list(root_list);
 }
 
-void get_path(int index, int file_descriptor, info_exFAT *info, recurse *r, char *s[], int counter)
+void print_file_list(int start_index, int file_descriptor, info_exFAT *info, char *s, char *arg, char *str[DEPTH_OF_FS], int index)
 {
-
-    info->index = index;
+    info->first_cluster_index = start_index;
 
     list *list_1 = init_list();
-    while (info->index != 4294967295 && info->index != 4294967287 && info->index != 0)
+    while (info->first_cluster_index != 4294967295 && info->first_cluster_index != 4294967287 && info->first_cluster_index != 0)
     {
-        enqueue(list_1, info->index);
-        //printf("\n data : 0x%08x", info->index);
-        lseek(file_descriptor, fat_offset_bytes + (info->index * 4), SEEK_SET);
-        read(file_descriptor, &info->index, 4);
+        enqueue(list_1, info->first_cluster_index);
+        lseek(file_descriptor, fat_offset_bytes + (info->first_cluster_index * 4), SEEK_SET);
+        read(file_descriptor, &info->first_cluster_index, 4);
     }
 
-    int value_N = (list_1->size * sectors_per_cluster * sector_length) / 32;
-    // printf("value N : %d list size %d\n", value_N, list_1->size);
+    int value_N = (sectors_per_cluster * sector_length) / 32;
 
     node *temp = list_1->top;
 
@@ -493,7 +330,7 @@ void get_path(int index, int file_descriptor, info_exFAT *info, recurse *r, char
     {
 
         int i = 0;
-        int offset = (cluster_offset_bytes + (temp->data - 2) * sectors_per_cluster) * sector_length;
+        int offset = (cluster_heap_offset + (temp->data - 2) * sectors_per_cluster) * sector_length;
         lseek(file_descriptor, offset, SEEK_SET);
 
         while (i < value_N)
@@ -502,8 +339,6 @@ void get_path(int index, int file_descriptor, info_exFAT *info, recurse *r, char
             lseek(file_descriptor, offset + i * 32, SEEK_SET);
             read(file_descriptor, &info->entry_type, 1);
 
-            // printf("\n0x%02x", info->entry_type);
-
             if (info->entry_type == 133)
             {
                 lseek(file_descriptor, offset + i * 32 + 4, SEEK_SET);
@@ -511,7 +346,6 @@ void get_path(int index, int file_descriptor, info_exFAT *info, recurse *r, char
                 info->attribute = info->attribute >> 4;
 
                 i++;
-                //printf("file attributes : %d\n", info->attribute);
 
                 lseek(file_descriptor, offset + i * 32, SEEK_SET);
                 read(file_descriptor, &info->entry_type, 1);
@@ -521,75 +355,96 @@ void get_path(int index, int file_descriptor, info_exFAT *info, recurse *r, char
 
                     lseek(file_descriptor, offset + i * 32 + 3, SEEK_SET);
                     read(file_descriptor, &info->file_name_length, 1);
-                    // printf("file length :%d\n", info->file_name_length);
 
                     int length = info->file_name_length;
 
-                    lseek(file_descriptor, offset + i * 32 + 3 + 1 + 16, SEEK_SET);
-                    read(file_descriptor, &r->dir_index, 4);
+                    lseek(file_descriptor, offset + i * 32 + 8, SEEK_SET);
+                    read(file_descriptor, &info->valid_data_length, 8);
+
+                    int valid_data_length = info->valid_data_length;
+
+                    lseek(file_descriptor, offset + i * 32 + 20, SEEK_SET);
+                    read(file_descriptor, &info->first_cluster_index, 4);
                     i++;
                     lseek(file_descriptor, offset + i * 32, SEEK_SET);
                     read(file_descriptor, &info->entry_type, 1);
 
                     if (info->entry_type == 193)
                     {
-                        char *file = NULL;
 
+                        char *file = malloc(256);
                         while (info->entry_type == 193)
                         {
 
-                            //printf("file attributes : %d\n", info->attribute);
-
-                            //for (int j = 0; j < (length / 15 + 1); j++)
-                            //{
                             lseek(file_descriptor, offset + i * 32 + 2, SEEK_SET);
                             read(file_descriptor, &info->file_name, 30);
                             i++;
 
-                            file = unicode2ascii(&info->file_name, length);
-                            printf(" %s\n", file);
-
-                            if (strcmp(s[counter], file) == 0)
-                            {
-                                if (info->attribute & 1)
-                                {
-                                    printf("\nfound it");
-                                    get_path(r->dir_index, file_descriptor, info, r, s, counter + 1);
-                                }
-                                else
-                                {
-                                    printf("hurray !");
-                                }
-                            }
-                            else
-                            {
-                                printf("\nnot found it");
-                            }
-                            printf("file name : %d\n", i);
+                            char *temp_filename = unicode2ascii(&info->file_name, length);
+                            strcat(file, temp_filename);
 
                             lseek(file_descriptor, offset + i * 32, SEEK_SET);
                             read(file_descriptor, &info->entry_type, 1);
                         }
 
-                        //printf("file length :%d\n", info->file_name_length);
+                        if (strcmp(arg, "list") == 0)
+                        {
+                            if (info->attribute & 1)
+                            {
 
-                        if (info->attribute & 1)
-                        {
-                            //string concentration in c--------------------------------------------------
-                            //printf("is directory\n ");
-                            //printf("-----------------------------------------------------     ");
+                                printf("%s Directory :  %s\n", s, file);
+                                char *newstr = malloc(sizeof(s) + 1);
+                                newstr[0] = '-';
+                                newstr[1] = '\0';
+                                strcat(newstr, s);
+                                print_file_list(info->first_cluster_index, file_descriptor, info, newstr, arg, str, index);
+                                free(newstr);
+                            }
+                            else
+                            {
+                                printf("%s File :  %s\n", s, file);
+                            }
                         }
-                        else
+                        else if (strcmp(arg, "get") == 0)
                         {
-                            // if (counter < (int)strlen(*string) && strcmp(string[counter], file) == 0)
-                            // {
-                            //     printf("\nfound it file");
-                            //     //get_path(r->dir_index, file_descriptor, info, r, string ,  counter++);
-                            // }
-                            // else
-                            // {
-                            //     printf("\nnot found it");
-                            // }
+                            if (index < length_file_path && strcmp(file, str[index]) == 0)
+                            {
+                                if (index + 1 < length_file_path)
+                                    print_file_list(info->first_cluster_index, file_descriptor, info, NULL, arg, str, index + 1);
+                                else
+                                {
+                                    int fs_file_d = open(file, O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR | S_IROTH | S_IWOTH);
+
+                                    list *file_data_list = init_list();
+
+                                    while (info->first_cluster_index != 4294967295 && info->first_cluster_index != 4294967287 && info->first_cluster_index != 0)
+                                    {
+                                        enqueue(file_data_list, info->first_cluster_index);
+                                        lseek(file_descriptor, fat_offset_bytes + (info->first_cluster_index * 4), SEEK_SET);
+                                        read(file_descriptor, &info->first_cluster_index, 4);
+                                    }
+
+                                    node *temp_2 = file_data_list->top;
+
+                                    while (temp_2 != NULL)
+                                    {
+
+                                        int j = 0;
+                                        int offset = (cluster_heap_offset + (temp_2->data - 2) * sectors_per_cluster) * sector_length;
+                                        lseek(file_descriptor, offset, SEEK_SET);
+
+                                        while (j < value_N && j < valid_data_length)
+                                        {
+                                            read(file_descriptor, &info->one_byte, 1);
+                                            printf("xxxx :%c\n", info->one_byte);
+                                            write(fs_file_d, &info->one_byte, 1);
+                                            j++;
+                                        }
+
+                                        temp_2 = temp_2->next;
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -601,43 +456,37 @@ void get_path(int index, int file_descriptor, info_exFAT *info, recurse *r, char
         temp = temp->next;
     }
 }
-
 int main(int argc, char *argv[])
 {
     assert(argc >= 3);
 
     int fd = open(argv[1], O_RDONLY);
     info_exFAT info_struct;
-    recurse r;
-    print_info(fd, &info_struct);
 
-    // char *token[10];
-    // char *temp = strtok(argv[3], "/");
-    // token[0] = malloc(10 * sizeof(char));
-    // strcpy(token[0], temp);
-    // int i = 1;
-    // while (temp != NULL)
-    // {
-    //     //parse[i] = malloc(sizeof(char *));
-    //     token[i] = malloc(10 * sizeof(char));
-    //     strcpy(token[i], temp);
-    //     temp = strtok(NULL, "/");
-    //     printf("\n %s", token[i]);
-    //     i++;
-    // }
-
-    //get_path(46, fd, &info_struct, &r, token, 0);
+    common_variables_reader(fd, &info_struct);
 
     if (strcmp(argv[2], "info") == 0)
     {
 
-        print_file_list(46, fd, &info_struct, &r, "-");
+        print_info(fd, &info_struct);
     }
-    else if (strcmp(argv[2], "list") == 0)
+    else
     {
-    }
-    else if (strcmp(argv[2], "get") == 0)
-    {
+
+        char *token = strtok(argv[3], "/");
+        char *file_path[DEPTH_OF_FS];
+
+        while (token != NULL)
+        {
+            file_path[length_file_path] = malloc(strlen(token));
+            strcpy(file_path[length_file_path], token);
+            token = strtok(NULL, "/");
+            printf("file name : %s\n", file_path[length_file_path]);
+            fflush(stdout);
+            length_file_path++;
+        }
+
+        print_file_list(first_cluster_root, fd, &info_struct, "", argv[2], file_path, 0);
     }
 
     return 0;
