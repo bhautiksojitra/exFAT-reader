@@ -310,6 +310,50 @@ void print_info(int fd, info_exFAT *info_storage)
     clear_list(root_list);
 }
 
+void get_user_data(char *file_name, int file_descriptor, long data_length, info_exFAT *info)
+{
+    int fs_file_d = open(file_name, O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR | S_IROTH | S_IWOTH);
+
+    list *file_data_list = init_list();
+    long count_ = 0;
+    while (info->first_cluster_index != 4294967295 && info->first_cluster_index != 4294967287 && info->first_cluster_index != 0)
+    {
+        enqueue(file_data_list, info->first_cluster_index);
+        lseek(file_descriptor, fat_offset_bytes + (info->first_cluster_index * 4), SEEK_SET);
+        printf("index of file clusters : %02x Counter : %lu\n", info->first_cluster_index, count_++);
+        read(file_descriptor, &info->first_cluster_index, 4);
+    }
+
+    printf(" data_length : %lu \n", data_length);
+    fflush(stdout);
+
+    node *temp_2 = file_data_list->top;
+    int value_N = (sectors_per_cluster * sector_length);
+
+    while (temp_2 != NULL)
+    {
+
+        int j = 0;
+
+        int offset = (cluster_heap_offset + (temp_2->data - 2) * sectors_per_cluster) * sector_length;
+        lseek(file_descriptor, offset, SEEK_SET);
+
+        while (j < value_N && count_ < data_length)
+        {
+            read(file_descriptor, &info->one_byte, 1);
+            // printf("hex value : 0x%02x\n", info->one_byte);
+            // fflush(stdout);
+            write(fs_file_d, &info->one_byte, 1);
+            j++;
+            count_++;
+        }
+
+        temp_2 = temp_2->next;
+    }
+
+    printf(" Size of file : %lu \n", count_);
+    fflush(stdout);
+}
 void print_file_list(int start_index, int file_descriptor, info_exFAT *info, char *s, char *arg, char *str[DEPTH_OF_FS], int index)
 {
     info->first_cluster_index = start_index;
@@ -361,7 +405,7 @@ void print_file_list(int start_index, int file_descriptor, info_exFAT *info, cha
                     lseek(file_descriptor, offset + i * 32 + 8, SEEK_SET);
                     read(file_descriptor, &info->valid_data_length, 8);
 
-                    int valid_data_length = info->valid_data_length;
+                    long valid_data_length = info->valid_data_length;
 
                     lseek(file_descriptor, offset + i * 32 + 20, SEEK_SET);
                     read(file_descriptor, &info->first_cluster_index, 4);
@@ -413,36 +457,8 @@ void print_file_list(int start_index, int file_descriptor, info_exFAT *info, cha
                                     print_file_list(info->first_cluster_index, file_descriptor, info, NULL, arg, str, index + 1);
                                 else
                                 {
-                                    int fs_file_d = open(file, O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IWUSR | S_IROTH | S_IWOTH);
-
-                                    list *file_data_list = init_list();
-
-                                    while (info->first_cluster_index != 4294967295 && info->first_cluster_index != 4294967287 && info->first_cluster_index != 0)
-                                    {
-                                        enqueue(file_data_list, info->first_cluster_index);
-                                        lseek(file_descriptor, fat_offset_bytes + (info->first_cluster_index * 4), SEEK_SET);
-                                        read(file_descriptor, &info->first_cluster_index, 4);
-                                    }
-
-                                    node *temp_2 = file_data_list->top;
-
-                                    while (temp_2 != NULL)
-                                    {
-
-                                        int j = 0;
-                                        int offset = (cluster_heap_offset + (temp_2->data - 2) * sectors_per_cluster) * sector_length;
-                                        lseek(file_descriptor, offset, SEEK_SET);
-
-                                        while (j < value_N && j < valid_data_length)
-                                        {
-                                            read(file_descriptor, &info->one_byte, 1);
-                                            printf("xxxx :%c\n", info->one_byte);
-                                            write(fs_file_d, &info->one_byte, 1);
-                                            j++;
-                                        }
-
-                                        temp_2 = temp_2->next;
-                                    }
+                                    printf("Valid data length : %lu \n", valid_data_length);
+                                    get_user_data(file, file_descriptor, valid_data_length, info);
                                 }
                             }
                         }
