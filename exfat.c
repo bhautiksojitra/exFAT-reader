@@ -1,4 +1,13 @@
-
+//-----------------------------------------
+// NAME: Bhautik Sojitra
+// STUDENT NUMBER: 7900140
+// COURSE: COMP 3430, SECTION: A01
+// INSTRUCTOR: Franklin Bristow
+// ASSIGNMENT: 4
+//
+// REMARKS: exFAT file system reader
+//
+//-----------------------------------------
 
 #include <stdio.h>
 
@@ -18,6 +27,7 @@
 
 #define DEPTH_OF_FS 100
 #define INDEX_ZERO 0
+
 // node structure
 typedef struct NODE
 {
@@ -379,6 +389,8 @@ void get_user_data(char *file_name, int file_descriptor, int start_index, long d
     // creating the a file
     int fs_fd = open(file_name, O_CREAT | O_TRUNC | O_RDWR, S_IRUSR | S_IROTH);
 
+    printf("File %s created successfully !\n ", file_name);
+
     // build cluster chain for the file
     list *file_data_list = build_cluster_chain(start_index, info, file_descriptor);
 
@@ -387,6 +399,8 @@ void get_user_data(char *file_name, int file_descriptor, int start_index, long d
     // reads the data from the clusters of the file
     long track_data_length = 0;
     int cluster_in_bytes = (sectors_per_cluster * sector_length);
+
+    printf("Writing Data in the file.... \n");
 
     while (temp_2 != NULL)
     {
@@ -410,6 +424,7 @@ void get_user_data(char *file_name, int file_descriptor, int start_index, long d
         temp_2 = temp_2->next; // go to the next cluster.
     }
 
+    printf("The data has been written !");
     clear_list(file_data_list);
 }
 
@@ -473,7 +488,6 @@ void recursive_file_finder(int start_index, int file_descriptor, info_exFAT *inf
 
                     lseek(file_descriptor, offset + i * 32 + 8, SEEK_SET);
                     read(file_descriptor, &info->valid_data_length, 8);
-
                     long valid_data_length = info->valid_data_length;
 
                     lseek(file_descriptor, offset + i * 32 + 20, SEEK_SET);
@@ -553,20 +567,23 @@ void recursive_file_finder(int start_index, int file_descriptor, info_exFAT *inf
                             // recursive call only if it finds the file passed in the argument
                             if (index < length_file_path && strcmp(file, str[index]) == 0)
                             {
+
                                 // condition indicates more directories to check from the path
                                 // to get to the actual file
                                 if (index + 1 < length_file_path)
-                                    recursive_file_finder(info->first_cluster_index, file_descriptor, info, NULL, arg, str, index + 1);
+                                {
+                                    printf("Directory found : %s\n", file);
+                                    recursive_file_finder(info->first_cluster_index, file_descriptor, info, "", arg, str, index + 1);
+                                }
                                 else
                                 {
                                     // gets the data entered by the user from the retreived file.
+                                    printf("File found : %s\n", file);
                                     file_found = 1;
                                     get_user_data(file, file_descriptor, info->first_cluster_index, valid_data_length, info);
                                 }
                             }
                         }
-
-                        free(file); // free the memory
                     }
                 }
             }
@@ -617,8 +634,7 @@ int main(int argc, char *argv[])
 
             while (token != NULL)
             {
-                file_path[length_file_path] = malloc(strlen(token));
-                strcpy(file_path[length_file_path], token);
+                file_path[length_file_path] = token;
 
                 token = strtok(NULL, "/");
                 length_file_path++; // length of the path to track how many directories we need to check.
@@ -626,13 +642,11 @@ int main(int argc, char *argv[])
 
             // finds the path of the using the 6th para-meter and creates the file in our system.
             assert(first_cluster_root > 0); // error checking to move forward.
-            recursive_file_finder(first_cluster_root, fd, &info_struct, "", argv[2], file_path, INDEX_ZERO);
+            recursive_file_finder(first_cluster_root, fd, &info_struct, NULL, argv[2], file_path, INDEX_ZERO);
 
-            // // Error msg if no file is found for get command.
-            // if (!file_found)
-            //     printf("Couldn't find the file through the given path !\n");
-
-            //free(file_path); // free the memory of file path.
+            // Error msg if no file is found for get command.
+            if (!file_found)
+                printf("Couldn't find the file through the given path !\n");
         }
         else
         {
